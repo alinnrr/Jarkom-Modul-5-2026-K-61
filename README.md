@@ -1,10 +1,27 @@
-# Laporan Praktikum Jaringan Komputer: Topologi Geofront (Soal 1 – 10)
+# JARKOM MODUL 5 2026 - K61
+
+## Member
+
+| Nama               | NRP        |
+| ------------------ | ---------- |
+| Ferlin Erdina Sari | 5027251002 |
+| Achmad Rifqy Aqila | 5027251102 |
 
 ---
 
-## Soal 1: Perhitungan VLSM & Pembagian Subjaringan
-
 ### 1. Penjelasan Konsep & Metode
+
+- ## TOPOLOGI
+
+Topologi jaringanmemisahkan fungsi gerbang perbatasan (_edge gateway_), distribusi antar-cabang, dan lapisan akses pengguna (_access layer_). Seluruh infrastruktur internal beroperasi di bawah satu blok jaringan induk **RFC 1918 `10.94.0.0/21`** ($2.048$ alamat IP) dan terhubung ke jaringan eksternal/internet melalui perangkat cloud **`NAT1`** (`192.168.122.0/24`).
+
+Secara keseluruhan, topologi ini terdiri atas **17 router** berbasis Linux (`debinet`) dan **25 node klien/server** yang tersebar ke dalam **17 segmen LAN** serta dihubungkan oleh **16 tautan _Point-to-Point_ (`/30`)**.
+
+![Topologi Jaringan Geofront](assets/Soal01_02_Topologi_Jaringan_Geofront.png)
+
+- ## VLSM
+
+  **File Excel Tabel VLSM:** [K61_TABEL_VLSM.xlsx](assets/K61_TABEL_VLSM.xlsx)
 
 Pada tahap perancangan pengalamatan IP, jaringan Geofront menggunakan blok jaringan induk **`10.94.0.0/21`** yang memiliki total kapasitas $2^{(32 - 21)} = 2.048$ alamat IP (`10.94.0.0` – `10.94.7.255`). Apabila digunakan pembagian subnet berukuran tetap (_Fixed-Length Subnet Mask_ / FLSM), akan terjadi pemborosan alamat yang sangat besar karena kebutuhan tiap segmen jaringan sangat bervariasi—mulai dari segmen klien besar seperti _Quarters_ hingga link _Point-to-Point_ antar-router yang hanya membutuhkan 2 alamat host valid.
 
@@ -82,8 +99,6 @@ Oleh karena itu, digunakan metode **_Variable Length Subnet Mask_** **(VLSM)** d
    # Memastikan seluruh subnet berada di dalam blok induk 10.94.0.0/21 (10.94.0.0 - 10.94.7.255)
    ipcalc 10.94.0.0/21
    ```
-
-- **File Excel Tabel VLSM:** [K61_TABEL_VLSM.xlsx](assets/K61_TABEL_VLSM.xlsx)
 
 - **Bukti Dokumentasi:**
   ![Tabel Alokasi VLSM Geofront](dokumentasi/Soal01_01_Tabel_VLSM_Lengkap.png)
@@ -248,6 +263,26 @@ Selain konfigurasi alamat IP dan pengaktifan status tautan (`ip link set dev <if
    ```
    _Hasil:_ Seluruh link _Point-to-Point_ (`/30`) merespons dengan `0% packet loss`.
 
+### DOKUMENTASI
+
+![Konfigurasi IP Router Gendou](assets/Soal02_01_Router_Gendou_IP_Config.png)
+![Konfigurasi IP Router Yui](assets/Soal02_02_Router_Yui_IP_Config.png)
+![Konfigurasi IP Router Hikari](assets/Soal02_03_Router_Hikari_IP_Config.png)
+![Konfigurasi IP Router Asuka](assets/Soal02_04_Router_Asuka_IP_Config.png)
+![Konfigurasi IP Router Shigeru](assets/Soal02_05_Router_Shigeru_IP_Config.png)
+![Konfigurasi IP Router Fuyutsuki](assets/Soal02_06_Router_Fuyutsuki_IP_Config.png)
+![Konfigurasi IP Router Mari](assets/Soal02_07_Router_Mari_IP_Config.png)
+![Konfigurasi IP Router Rei](assets/Soal02_08_Router_Rei_IP_Config.png)
+![Konfigurasi IP Router Shinji](assets/Soal02_09_Router_Shinji_IP_Config.png)
+![Konfigurasi IP Router Kaworu](assets/Soal02_10_Router_Kaworu_IP_Config.png)
+![Konfigurasi IP Router Kensuke](assets/Soal02_11_Router_Kensuke_IP_Config.png)
+![Konfigurasi IP Router Ritsuko](assets/Soal02_12_Router_Ritsuko_IP_Config.png)
+![Konfigurasi IP Router Kaji](assets/Soal02_13_Router_Kaji_IP_Config.png)
+![Konfigurasi IP Router Misato](assets/Soal02_14_Router_Misato_IP_Config.png)
+![Konfigurasi IP Router Makoto](assets/Soal02_15_Router_Makoto_IP_Config.png)
+![Konfigurasi IP Router Maya](assets/Soal02_16_Router_Maya_IP_Config.png)
+![Konfigurasi IP Router Toji](assets/Soal02_17_Router_Toji_IP_Config.png)
+
 ---
 
 ## Soal 3: Konfigurasi Static Routing Antar-Cabang (17 Router)
@@ -342,6 +377,28 @@ Setelah seluruh antarmuka memiliki IP, setiap router secara bawaan hanya mengeta
    ```
    _Hasil:_ Paket melewati 6 hop (`Lilith` $\rightarrow$ `Toji` $\rightarrow$ `Fuyutsuki` $\rightarrow$ `Gendou` $\rightarrow$ `Shigeru` $\rightarrow$ `Armisael`) dengan `0% packet loss`.
 
+### DOKUMENTASI
+
+![Tabel Routing dan Ping Awal di Gendou](assets/Soal03_01_Gendou_Routing_Table_dan_Ping_1.png)
+![Uji Ping Tier 1 Selesai di Gendou](assets/Soal03_02_Gendou_Ping_Tier1_Selesai.png)
+![Tabel Routing dan Uji Ping Hikari](assets/Soal03_03_Hikari_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Asuka](assets/Soal03_04_Asuka_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Shigeru](assets/Soal03_05_Shigeru_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Fuyutsuki](assets/Soal03_06_Fuyutsuki_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Mari](assets/Soal03_07_Mari_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Rei](assets/Soal03_08_Rei_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Shinji](assets/Soal03_09_Shinji_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Kaworu](assets/Soal03_10_Kaworu_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Kensuke](assets/Soal03_11_Kensuke_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Shigeru (Lanjutan)](assets/Soal03_12_Shigeru_Route_dan_Ping_2.png)
+![Tabel Routing dan Uji Ping Ritsuko](assets/Soal03_13_Ritsuko_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Kaji](assets/Soal03_14_Kaji_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Misato](assets/Soal03_15_Misato_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Makoto](assets/Soal03_16_Makoto_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Maya](assets/Soal03_17_Maya_Route_dan_Ping.png)
+![Tabel Routing dan Uji Ping Toji](assets/Soal03_18_Toji_Route_dan_Ping.png)
+![Traceroute Jalur Dummy-Plug ke Armisael](assets/Soal03_19_DummyPlug_Traceroute_ke_Armisael.png)
+
 ---
 
 ## Soal 4: Konfigurasi NAT Masquerade (`Gendou`)
@@ -371,6 +428,11 @@ iptables -t nat -A POSTROUTING -s 10.94.0.0/21 -o eth0 -j MASQUERADE
    ping -c 3 8.8.8.8
    ```
    _Hasil:_ Klien internal menerima balasan dari `8.8.8.8` dengan `0% packet loss`, membuktikan translasi SNAT/Masquerade berjalan dua arah.
+
+### DOKUMENTASI
+
+![Konfigurasi NAT1 DHCP dan Ping Internet di Gendou](assets/Soal04_01_Gendou_NAT1_DHCP_Ping_Internet.png)
+![Uji Ping LAN dan Internet](assets/Soal04_02_DummyPlug_Uji_Ping_LAN_dan_Internet.png)
 
 ---
 
@@ -417,6 +479,10 @@ iptables -A FORWARD -s 10.94.0.0/21 -d 10.94.0.0/21 -j ACCEPT
    ping -c 3 8.8.8.8
    ```
    _Hasil:_ Koneksi yang diinisiasi klien internal lolos melewati rantai `FORWARD`, sementara paket asing yang tidak memiliki status `ESTABLISHED` dari luar ditolak oleh kebijakan `DROP`.
+
+### DOKUMENTASI
+
+![Konfigurasi Iptables Policy DROP, NAT, dan Firewall di Gendou](assets/Soal05_01_Gendou_Iptables_NAT_dan_Firewall.png)
 
 ---
 
@@ -669,6 +735,34 @@ ifup -a
    ```
    _Hasil:_ Komunikasi lintas ujung jaringan dan resolusi DNS berjalan dengan `0% packet loss`.
 
+### DOKUMENTASI
+
+![Konfigurasi IP Client Quarters](assets/Soal06_01_Client_Quarters_IP_Config.png)
+![Konfigurasi IP Client HangarCrew](assets/Soal06_02_Client_HangarCrew_IP_Config.png)
+![Konfigurasi IP Client GardenStaff](assets/Soal06_03_Client_GardenStaff_IP_Config.png)
+![Konfigurasi IP Server CommNet](assets/Soal06_04_Server_CommNet_IP_Config.png)
+![Konfigurasi IP Client DockCrew](assets/Soal06_05_Client_DockCrew_IP_Config.png)
+![Konfigurasi IP Server RelayNode](assets/Soal06_06_Server_RelayNode_IP_Config.png)
+![Konfigurasi IP Client Sachiel](assets/Soal06_07_Client_Sachiel_IP_Config.png)
+![Konfigurasi IP Client EntryPlug](assets/Soal06_08_Client_EntryPlug_IP_Config.png)
+![Konfigurasi IP Client DummyPlug](assets/Soal06_09_Client_DummyPlug_IP_Config.png)
+![Konfigurasi IP Server ArchiveVault](assets/Soal06_10_Server_ArchiveVault_IP_Config.png)
+![Konfigurasi IP Server Tokyo3Core](assets/Soal06_11_Server_Tokyo3Core_IP_Config.png)
+![Konfigurasi IP Client Spy](assets/Soal06_12_Client_Spy_IP_Config.png)
+![Konfigurasi IP Client Unit-01 & Ping Gateway](assets/Soal06_13_Client_Unit01_IP_Config.png)
+![Konfigurasi IP Client Unit-02](assets/Soal06_14_Client_Unit02_IP_Config.png)
+![Konfigurasi IP Client Unit-00](assets/Soal06_15_Client_Unit00_IP_Config.png)
+![Konfigurasi IP Client Zeruel](assets/Soal06_16_Client_Zeruel_IP_Config.png)
+![Konfigurasi IP Client Armisael](assets/Soal06_17_Client_Armisael_IP_Config.png)
+![Konfigurasi IP Server RadarArray](assets/Soal06_18_Server_RadarArray_IP_Config.png)
+![Konfigurasi IP Server MagiCasper](assets/Soal06_19_Server_MagiCasper_IP_Config.png)
+![Konfigurasi IP Server MagiBalthasar](assets/Soal06_20_Server_MagiBalthasar_IP_Config.png)
+![Konfigurasi IP Server MagiMelchior](assets/Soal06_21_Server_MagiMelchior_IP_Config.png)
+![Konfigurasi IP Server PenPen](assets/Soal06_22_Server_PenPen_IP_Config.png)
+![Konfigurasi IP Client MedicBay](assets/Soal06_23_Client_MedicBay_IP_Config.png)
+![Konfigurasi IP Client Lilith](assets/Soal06_24_Client_Lilith_IP_Config.png)
+![Konfigurasi IP Client Adam](assets/Soal06_25_Client_Adam_IP_Config.png)
+
 ---
 
 ## Soal 7: Membangunkan Sistem MAGI (`Casper`, `Balthasar`, dan `Melchior`)
@@ -734,17 +828,15 @@ Saat menjalankan `apt-get update`, muncul galat _signature verification_ (`Not l
    cat /tmp/melchior.log
    ```
 
-- **Bukti Dokumentasi:**
-  ![Error APT Clock di Casper](dokumentasi/Soal07_01_Casper_Error_APT_Clock.png)
-  ![Error APT Clock di Balthasar](dokumentasi/Soal07_02_Balthasar_Error_APT_Clock.png)
-  ![Error APT Clock di Melchior](dokumentasi/Soal07_03_Melchior_Error_APT_Clock.png)
-  ![Instalasi & Listener Casper Berhasil](dokumentasi/Soal07_04_Casper_Install_Listener_OK.png)
-  ![Instalasi & Listener Balthasar Berhasil](dokumentasi/Soal07_05_Balthasar_Install_Listener_OK.png)
-  ![Instalasi & Listener Melchior Berhasil](dokumentasi/Soal07_06_Melchior_Install_Listener_OK.png)
-  ![Pengiriman Pesan dari Lilith](dokumentasi/Soal07_07_Lilith_Kirim_Pesan_MAGI.png)
-  ![Log Pesan Masuk di Casper](dokumentasi/Soal07_08_Casper_Log_Pesan_Diterima.png)
-  ![Log Pesan Masuk di Balthasar](dokumentasi/Soal07_09_Balthasar_Log_Pesan_Diterima.png)
-  ![Log Pesan Masuk di Melchior](dokumentasi/Soal07_10_Melchior_Log_Pesan_Diterima.png)
+### DOKUMENTASI
+
+![Instalasi dan Status Listener OK di Casper](assets/Soal07_01_Casper_Install_Listener_OK.png)
+![Instalasi dan Status Listener OK di Balthasar](assets/Soal07_02_Balthasar_Install_Listener_OK.png)
+![Instalasi dan Status Listener OK di Melchior](assets/Soal07_03_Melchior_Install_Listener_OK.png)
+![Pengiriman Pesan dari Lilith ke MAGI](assets/Soal07_04_Lilith_Kirim_Pesan_MAGI.png)
+![Log Pesan Diterima di Casper](assets/Soal07_05_Casper_Log_Pesan_Diterima.png)
+![Log Pesan Diterima di Balthasar](assets/Soal07_06_Balthasar_Log_Pesan_Diterima.png)
+![Log Pesan Diterima di Melchior](assets/Soal07_07_Melchior_Log_Pesan_Diterima.png)
 
 ---
 
@@ -797,10 +889,11 @@ Ketika klien `Lilith` menguji port yang terbuka (`80` dan `8080`), proses _TCP 3
    nc.traditional -zv -w 2 10.94.4.106 22
    ```
 
-- **Bukti Dokumentasi:**
-  ![Aktivasi Listener Pen-Pen Port 80](dokumentasi/Soal08_01_PenPen_Listener_Port80.png)
-  ![Aktivasi Listener Tokyo3-Core Port 80 & 8080](dokumentasi/Soal08_02_Tokyo3Core_Listener_Port80_8080.png)
-  ![Pengujian Port 80, 8080, dan 22 dari Lilith](dokumentasi/Soal08_03_Lilith_Uji_NC_Port80_8080_22.png)
+### DOKUMENTASI
+
+![Listener Port 80 di PenPen](assets/Soal08_01_PenPen_Listener_Port80.png)
+![Listener Port 80 dan 8080 di Tokyo3Core](assets/Soal08_02_Tokyo3Core_Listener_Port80_8080.png)
+![Uji Koneksi Netcat ke Port 80, 8080, dan 22 dari Lilith](assets/Soal08_03_Lilith_Uji_NC_Port80_8080_22.png)
 
 ---
 
@@ -892,13 +985,13 @@ Melalui inspeksi parameter kernel, tabel routing utama, serta aturan _Policy-Bas
    ping -c 3 10.94.4.91
    ```
 
-- **Bukti Dokumentasi:**
-  ![Referensi Skrip break_routing.sh](dokumentasi/Soal09_01_Referensi_Script_break_routing.png)
-  ![Eksekusi break_routing.sh di Shigeru](dokumentasi/Soal09_02_Shigeru_Eksekusi_break_routing.png)
-  ![Inspeksi 4 Penyebab Sabotase di Shigeru](dokumentasi/Soal09_03_Shigeru_Inspeksi_4_Penyebab_Sabotase.png)
-  ![Gejala Ping Gagal dari Lilith ke Armisael](dokumentasi/Soal09_04_Lilith_Gejala_Ping_Armisael_Gagal.png)
-  ![Perbaikan Routing & Rule di Shigeru](dokumentasi/Soal09_05_Shigeru_Perbaikan_Routing_Rule_Forward.png)
-  ![Verifikasi Ping Armisael Kembali Normal](dokumentasi/Soal09_06_Lilith_Verifikasi_Ping_Armisael_Normal.png)
+### DOKUMENTASI
+
+![Eksekusi break_routing.sh di Shigeru](assets/Soal09_02_Shigeru_Eksekusi_break_routing.png)
+![Inspeksi 4 Penyebab Sabotase di Shigeru](assets/Soal09_03_Shigeru_Inspeksi_4_Penyebab_Sabotase.png)
+![Gejala Ping ke Armisael Gagal dari Lilith](assets/Soal09_04_Lilith_Gejala_Ping_Armisael_Gagal.png)
+![Perbaikan Routing dan Rule Forward di Shigeru](assets/Soal09_05_Shigeru_Perbaikan_Routing_Rule_Forward.png)
+![Verifikasi Ping ke Armisael Kembali Normal dari Lilith](assets/Soal09_06_Lilith_Verifikasi_Ping_Armisael_Normal.png)
 
 ---
 
@@ -1012,14 +1105,14 @@ Pada skenario terakhir, skrip sabotase `/root/break_nat.sh` dijalankan pada rout
    ping -c 3 8.8.8.8
    ```
 
-- **Bukti Dokumentasi:**
-  ![Referensi Skrip break_nat.sh](dokumentasi/Soal10_01_Referensi_Script_break_nat.png)
-  ![Eksekusi break_nat.sh di Misato](dokumentasi/Soal10_03_Misato_Eksekusi_break_nat.png)
-  ![Eksekusi break_nat.sh di Gendou](dokumentasi/Soal10_04_Gendou_Eksekusi_break_nat.png)
-  ![Tabel NAT Rusak di Misato (SNAT Palsu)](dokumentasi/Soal10_05_Misato_Tabel_NAT_SNAT_Palsu.png)
-  ![Tabel NAT Rusak di Gendou (Bypass RETURN)](dokumentasi/Soal10_06_Gendou_Tabel_NAT_Bypass_RETURN.png)
-  ![Gejala Ping 8.8.8.8 Gagal & Lilith Sukses di Unit-01](dokumentasi/Soal10_07_Unit01_Gejala_Ping_8888_Gagal_Lilith_OK.png)
-  ![Uji Ping 8.8.8.8 Normal di Spy](dokumentasi/Soal10_08_Spy_Ping_8888_Normal.png)
-  ![Perbaikan Tabel NAT di Misato](dokumentasi/Soal10_09_Misato_Perbaikan_Flush_NAT.png)
-  ![Perbaikan Tabel NAT di Gendou](dokumentasi/Soal10_10_Gendou_Perbaikan_Hapus_Rule_RETURN.png)
-  ![Verifikasi Ping 8.8.8.8 Kembali Normal dari Unit-01](dokumentasi/Soal10_11_Unit01_Verifikasi_Ping_8888_Normal.png)
+### DOKUMENTASI
+
+![Eksekusi break_nat.sh di Misato](assets/Soal10_02_Misato_Eksekusi_break_nat.png)
+![Eksekusi break_nat.sh di Gendou](assets/Soal10_03_Gendou_Eksekusi_break_nat.png)
+![Tabel NAT Rusak di Misato (SNAT Palsu)](assets/Soal10_04_Misato_Tabel_NAT_SNAT_Palsu.png)
+![Tabel NAT Rusak di Gendou (Bypass RETURN)](assets/Soal10_05_Gendou_Tabel_NAT_Bypass_RETURN.png)
+![Gejala Ping 8.8.8.8 Gagal & Lilith Sukses di Unit-01](assets/Soal10_06_Unit01_Gejala_Ping_8888_Gagal_Lilith_OK.png)
+![Uji Ping 8.8.8.8 Normal di Spy](assets/Soal10_07_Spy_Ping_8888_Normal.png)
+![Perbaikan Tabel NAT di Misato](assets/Soal10_08_Misato_Perbaikan_Flush_NAT.png)
+![Perbaikan Tabel NAT di Gendou](assets/Soal10_09_Gendou_Perbaikan_Hapus_Rule_RETURN.png)
+![Verifikasi Ping 8.8.8.8 Kembali Normal dari Unit-01](assets/Soal10_10_Unit01_Verifikasi_Ping_8888_Normal.png)
