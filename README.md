@@ -1116,3 +1116,981 @@ Pada skenario terakhir, skrip sabotase `/root/break_nat.sh` dijalankan pada rout
 ![Perbaikan Tabel NAT di Misato](assets/Soal10_08_Misato_Perbaikan_Flush_NAT.png)
 ![Perbaikan Tabel NAT di Gendou](assets/Soal10_09_Gendou_Perbaikan_Hapus_Rule_RETURN.png)
 ![Verifikasi Ping 8.8.8.8 Kembali Normal dari Unit-01](assets/Soal10_10_Unit01_Verifikasi_Ping_8888_Normal.png)
+
+
+
+# Soal 11: Isolasi ICMP pada Magi-Casper ("Casper Harus Jadi Hantu")
+
+## 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan pengamanan pada **Magi-Casper** (`10.94.4.66/29`) dengan menerapkan kebijakan *stateful firewall* menggunakan `iptables` pada rantai `INPUT`.
+
+Tujuannya adalah menyembunyikan keberadaan Casper dari pemindaian ICMP (*ping*) perangkat lain, termasuk perangkat yang berada dalam satu segmen *broadcast* (`Switch-Terminal`: Magi-Balthasar `10.94.4.67` dan Magi-Melchior `10.94.4.68`), sambil tetap mempertahankan kemampuan Casper untuk menginisiasi ping keluar serta melayani koneksi aplikasi pada TCP port `5000`.
+
+Mekanisme penyaringan bekerja berdasarkan urutan evaluasi aturan (*top-down*):
+
+- **Loopback (`-i lo`)**: Diizinkan untuk menjaga komunikasi proses internal sistem operasi.
+- **Stateful Inspection (`--ctstate ESTABLISHED,RELATED`)**: Diletakkan sebelum aturan pemblokiran ICMP agar paket balasan (`ICMP echo-reply`, tipe 0) dari sesi ping yang diinisiasi oleh Casper sendiri tetap dapat diterima.
+- **Pemblokiran ICMP Masuk (`-p icmp --icmp-type echo-request -j DROP`)**: Menjatuhkan seluruh permintaan ping masuk (ICMP tipe 8) dari semua antarmuka jaringan tanpa mengirimkan pesan penolakan balik (*silent drop*).
+- **Layanan MAGI (`-p tcp --dport 5000 -j ACCEPT`)**: Memastikan lalu lintas masuk menuju port layanan utama Casper tetap terbuka.
+
+## 2. Skrip Konfigurasi Firewall (`Magi-Casper`)
+
+Konfigurasi disimpan dan dieksekusi melalui berkas `/root/casper.sh`:
+
+```bash
+#!/bin/sh
+
+# --- Inisialisasi Layanan MAGI ---
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+date -s "2026-11-24 04:00:00" >/dev/null 2>&1 || true
+
+if ! dpkg -s iptables netcat-traditional >/dev/null 2>&1; then
+    apt-get -o Acquire::Check-Valid-Until=false update
+    apt-get install -y --allow-unauthenticated iptables netcat-traditional
+fi
+
+pkill -f "nc.traditional" 2>/dev/null || true
+nohup nc.traditional -l -k -p 5000 > /tmp/casper.log 2>&1 &
+
+# --- Aturan Firewall Soal 11 ---
+iptables -F
+iptables -X
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# 1. Izinkan antarmuka loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Izinkan balasan koneksi yang diinisiasi oleh Casper (termasuk echo-reply)
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Blokir seluruh ICMP echo-request masuk dari mana pun (termasuk satu switch)
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 4. Izinkan koneksi masuk ke layanan TCP port 5000
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+```
+
+## 3. Pengujian & Analisis Hasil
+
+### 3.1 Verifikasi Daftar Aturan Firewall di `Magi-Casper`
+
+Jalankan perintah berikut:
+
+```bash
+iptables -S
+```
+
+**Hasil:** Aturan `ESTABLISHED,RELATED` berada di atas aturan pemblokiran ICMP, yaitu `-p icmp -m icmp --icmp-type 8 -j DROP`. Aturan `-p tcp -m tcp --dport 5000 -j ACCEPT` juga aktif pada rantai `INPUT`.
+
+### 3.2 Uji Ping Keluar dari `Magi-Casper` (`10.94.4.66`)
+
+Uji koneksi ke Magi-Balthasar (`10.94.4.67`) dan Lilith (`10.94.4.82`):
+
+```bash
+ping -c 3 10.94.4.67
+ping -c 3 10.94.4.82
+```
+
+**Hasil:** Kedua pengujian berhasil dengan **0% packet loss** (3 paket terkirim, 3 diterima). Paket `echo-reply` yang kembali dari Balthasar maupun Lilith dikenali oleh modul `conntrack` sebagai status `ESTABLISHED` sehingga lolos masuk ke Casper.
+
+### 3.3 Uji Ping Masuk dari `Magi-Balthasar` dan `Lilith` ke `Magi-Casper`
+
+Jalankan perintah berikut dari Magi-Balthasar (`10.94.4.67`) dan Lilith (`10.94.4.82`):
+
+```bash
+ping -c 3 10.94.4.66
+```
+
+**Hasil:** Kedua pengujian gagal dengan **100% packet loss** (3 paket terkirim, 0 diterima). Baik lalu lintas *Layer 2* dalam satu switch (`Switch-Terminal`) maupun lalu lintas *Layer 3* lintas router (`Switch-Dogma` → `Switch-Terminal`) diproses oleh kernel Magi-Casper dan dijatuhkan pada rantai `INPUT`.
+
+## 4. Dokumentasi
+1. Hasil perintah `iptables -S` di Magi-Casper.
+   ![alt text](assets/image.png)
+2. Hasil ping keluar dari Magi-Casper ke `10.94.4.67` dan `10.94.4.82`.
+   ![alt text](assets/imagecopy.png)
+3. Hasil ping masuk dari Magi-Balthasar ke `10.94.4.66` (**100% packet loss**).
+   ![alt text](assets/image-1.png)
+4. Hasil ping masuk dari Lilith ke `10.94.4.66` (**100% packet loss**).
+   ![alt text](assets/image-2.png)
+
+
+# Soal 12: Perbaikan Hardening Firewall pada Magi-Casper
+
+## 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan diagnosis dan pemulihan konfigurasi firewall pada **Magi-Casper** (`10.94.4.66/29`) setelah eksekusi skrip sabotase `/root/break_fw.sh`.
+
+Perbaikan dilakukan dengan tetap mempertahankan *policy* `INPUT DROP` dan penolakan paket ICMP masuk (*ping*) sesuai tujuan *hardening*, namun memulihkan alur lalu lintas yang sah:
+
+- **Stateful Return Traffic (`--ctstate RELATED,ESTABLISHED` pada `INPUT`)**: Memungkinkan paket balasan dari koneksi yang diinisiasi oleh Casper sendiri, seperti balasan *echo-reply* saat `ping 8.8.8.8`, balasan kueri DNS, dan paket data `apt-get update`, lolos masuk meskipun kebijakan bawaan `INPUT` adalah `DROP`.
+- **Akses DNS Keluar (`OUTPUT` tidak memblokir UDP/TCP port `53`)**: Memungkinkan Casper mengirimkan permintaan resolusi nama domain ke resolver DNS sehingga `apt-get update` dapat me-resolve alamat repositori (`deb.debian.org`).
+- **Akses Layanan TCP Port `5000`**: Mengizinkan koneksi TCP masuk ke port `5000` tempat layanan `nc` milik Casper mendengarkan, sehingga klien sah seperti `Unit-00` dapat terhubung.
+
+## 2. Temuan Penyebab & Analisis Gejala Setelah `break_fw.sh`
+
+Hasil pemeriksaan `iptables -S` setelah menjalankan `/root/break_fw.sh` menunjukkan tiga penyebab utama:
+
+1. **Hilangnya aturan `ESTABLISHED,RELATED` pada rantai `INPUT`**: Paket balasan dari `8.8.8.8` maupun server repositori `apt-get` tidak dikenali sebagai kelanjutan sesi keluar sehingga jatuh ke *policy* `-P INPUT DROP`. Akibatnya, `ping 8.8.8.8` mengalami `100% packet loss`.
+2. **Aturan `-A OUTPUT -p udp -m udp --dport 53 -j DROP`**: Memblokir paket permintaan DNS keluar menuju port UDP `53`, sehingga memicu kegagalan resolusi nama domain (`Temporary failure resolving 'deb.debian.org'`) saat `apt-get update`.
+3. **Hilangnya aturan `-A INPUT -p tcp -m tcp --dport 5000 -j ACCEPT`**: Seluruh koneksi baru ke TCP port `5000`, termasuk dari `Unit-00`, dijatuhkan oleh *policy* `INPUT DROP`.
+
+Skrip perbaikan disimpan dan dijalankan melalui `/root/casper.sh`:
+
+```bash
+#!/bin/sh
+
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+date -s "2026-11-24 04:00:00" >/dev/null 2>&1 || true
+
+if ! dpkg -s iptables netcat-traditional >/dev/null 2>&1; then
+    apt-get -o Acquire::Check-Valid-Until=false update
+    apt-get install -y --allow-unauthenticated iptables netcat-traditional
+fi
+
+pkill -f "nc.traditional.*5000" 2>/dev/null || true
+nohup nc.traditional -l -k -p 5000 > /tmp/casper.log 2>&1 &
+
+# --- Pemulihan Firewall Soal 12 ---
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# 1. Izinkan loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Izinkan balasan koneksi yang diinisiasi Casper
+# (balasan ping, DNS, dan apt-get)
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Tolak ping masuk (ICMP echo-request)
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 4. Izinkan koneksi masuk ke layanan TCP 5000
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+```
+
+## 3. Pengujian & Analisis Hasil
+
+### 3.1 Verifikasi Rule Aktif di `Magi-Casper` (`10.94.4.66`)
+
+Jalankan perintah berikut:
+
+```bash
+iptables -S
+```
+
+**Hasil:** *Policy* `-P INPUT DROP` tetap aktif bersama aturan `lo`, `RELATED,ESTABLISHED`, `-p icmp -m icmp --icmp-type 8 -j DROP`, dan `-p tcp -m tcp --dport 5000 -j ACCEPT`.
+
+### 3.2 Uji Koneksi TCP Port `5000` dan Ping dari `Unit-00` ke `Magi-Casper`
+
+Jalankan perintah berikut dari `Unit-00`:
+
+```bash
+nc -v -w 3 10.94.4.66 5000
+ping -c 2 10.94.4.66
+```
+
+**Hasil:** Koneksi `nc` ke port `5000` berhasil (`Connection to 10.94.4.66 5000 port [tcp/*] succeeded!`), sedangkan `ping` ke `10.94.4.66` tetap gagal (`100% packet loss`) sesuai tujuan *hardening*.
+
+### 3.3 Uji Ping `8.8.8.8` dan `apt-get update` di `Magi-Casper`
+
+Jalankan perintah berikut di Magi-Casper:
+
+```bash
+ping -c 3 8.8.8.8
+apt-get -o Acquire::Check-Valid-Until=false update
+```
+
+**Hasil:** `ping -c 3 8.8.8.8` berhasil dengan `0% packet loss`, dan `apt-get -o Acquire::Check-Valid-Until=false update` sukses (`Reading package lists... Done`).
+
+## 4. Dokumentasi
+
+1. Hasil perintah `iptables -S` di Magi-Casper.
+   ![alt text](assets/image-3.png)
+2. Hasil `nc -v -w 3 10.94.4.66 5000` dari Unit-00.
+   ![alt text](assets/image-4.png)
+3. Hasil `ping -c 2 10.94.4.66` dari Unit-00 (**100% packet loss**).
+   ![alt text](assets/image-5.png)
+4. Hasil `ping -c 3 8.8.8.8` di Magi-Casper (**0% packet loss**).
+   ![alt text](assets/image-6.png)
+5. Hasil `apt-get -o Acquire::Check-Valid-Until=false update` di Magi-Casper.
+   ![alt text](assets/image-7.png)
+
+
+# Soal 13: Pembatasan Akses Layanan TCP Port 5000 & 5001 pada Magi-Balthasar
+
+## 1. Penjelasan Konsep
+
+Pada tahap ini diterapkan kontrol akses berbasis alamat IP sumber (*source IP allowlisting*) pada **Magi-Balthasar** (`10.94.4.67/29`) untuk layanan TCP port `5000` dan `5001`.
+
+Hanya **Magi-Casper** (`10.94.4.66`) serta perangkat **Pilot** yang diizinkan membuka koneksi ke kedua port tersebut, sedangkan perangkat lain, termasuk node dalam satu switch (`Magi-Melchior`) maupun lintas segmen (`Lilith` `10.94.4.82`), langsung ditolak.
+
+Mekanisme penyaringan pada rantai `INPUT` menggunakan evaluasi berurutan:
+
+- **Loopback (`-i lo`) & Stateful Return (`--ctstate ESTABLISHED,RELATED`)**: Menjaga komunikasi internal serta balasan koneksi keluar, seperti `ping 8.8.8.8` dan kueri DNS, tetap berjalan normal.
+- **Allowlist IP Sumber (`-p tcp -s <IP> -m multiport --dports 5000,5001 -j ACCEPT`)**: Mengizinkan koneksi masuk ke port `5000` dan `5001` khusus dari alamat IP Casper dan para Pilot.
+- **Penolakan Eksplisit (`-p tcp -m multiport --dports 5000,5001 -j REJECT --reject-with tcp-reset`)**: Menolak koneksi ke port `5000` dan `5001` dari alamat IP lain sekaligus mengirimkan paket `TCP RST` agar klien langsung mendapat balasan `Connection refused` tanpa menunggu *timeout*.
+
+## 2. Skrip Konfigurasi Layanan & Firewall (`Magi-Balthasar`)
+
+Konfigurasi layanan `nc` dan aturan `iptables` disimpan dan dieksekusi melalui `/root/balthasar.sh`:
+
+```bash
+#!/bin/sh
+
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
+if ! command -v nc.traditional >/dev/null 2>&1; then
+    apt-get -o Acquire::Check-Valid-Until=false update
+    apt-get install -y --allow-unauthenticated iptables netcat-traditional
+fi
+
+NC_BIN=$(command -v nc.traditional || command -v nc)
+
+pkill -f "nc.*-p 500[01]" 2>/dev/null || true
+
+nohup "$NC_BIN" -l -k -p 5000 >/tmp/balthasar-5000.log 2>&1 </dev/null &
+nohup "$NC_BIN" -l -k -p 5001 >/tmp/balthasar-5001.log 2>&1 </dev/null &
+
+# --- Konfigurasi Firewall Soal 13 ---
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+
+iptables -P INPUT ACCEPT
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# 1. Izinkan loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Izinkan balasan koneksi yang sudah terbentuk
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Allowlist IP sumber untuk port 5000 dan 5001
+for ip in 10.94.4.66 10.94.4.74 10.94.4.75 10.94.4.76 10.94.4.77 10.94.4.78 10.94.4.50; do
+    iptables -A INPUT -p tcp -s "$ip" -m multiport --dports 5000,5001 -j ACCEPT
+done
+
+# 4. Tolak koneksi dari IP lain ke port 5000 dan 5001
+iptables -A INPUT -p tcp -m multiport --dports 5000,5001 -j REJECT --reject-with tcp-reset
+```
+
+## 3. Pengujian & Analisis Hasil
+
+### 3.1 Uji Akses dari `Unit-01` (`10.94.4.74`) ke `Magi-Balthasar` (`10.94.4.67`)
+
+Jalankan perintah berikut dari Unit-01:
+
+```bash
+nc -v -w 3 10.94.4.67 5000
+nc -v -w 3 10.94.4.67 5001
+```
+
+**Hasil:** Kedua koneksi berhasil (`Connection to 10.94.4.67 5000 port [tcp/*] succeeded!` dan `Connection to 10.94.4.67 5001 port [tcp/*] succeeded!`) karena alamat IP sumber tercantum dalam aturan `ACCEPT` sebelum aturan `REJECT`.
+
+### 3.2 Uji Akses dari `Lilith` (`10.94.4.82`) ke `Magi-Balthasar` (`10.94.4.67`)
+
+Jalankan perintah berikut dari Lilith:
+
+```bash
+nc -v -w 3 10.94.4.67 5000
+nc -v -w 3 10.94.4.67 5001
+```
+
+**Hasil:** Kedua koneksi langsung ditolak (`Connection refused`) akibat cocok dengan aturan `REJECT --reject-with tcp-reset` pada port `5000` dan `5001`.
+
+### 3.3 Uji Konektivitas Keluar (`ping 8.8.8.8`) dari `Magi-Balthasar`
+
+Jalankan perintah berikut di Magi-Balthasar:
+
+```bash
+ping -c 2 8.8.8.8
+```
+
+**Hasil:** Berhasil dengan `0% packet loss`, membuktikan aturan `ESTABLISHED,RELATED` dan lalu lintas keluar tetap berjalan normal.
+
+## 4. Dokumentasi
+
+1. Hasil `nc` dari Unit-01 ke port `5000` dan `5001` (**koneksi berhasil**).
+   ![alt text](assets/image-8.png)
+2. Hasil `nc` dari Lilith ke port `5000` dan `5001` (**Connection refused**).
+   ![alt text](assets/image-9.png)
+3. Hasil `ping -c 2 8.8.8.8` di Magi-Balthasar (**0% packet loss**).
+   ![alt text](assets/image-10.png)
+
+
+
+# Soal 14: Pembatasan Akses Berbasis Waktu pada Pen-Pen
+
+## 1. Penjelasan Konsep
+
+Pada tahap ini diterapkan pembatasan akses berbasis waktu (*time-based access control*) pada **Pen-Pen** (`10.94.3.194/27`) menggunakan modul `iptables -m time` untuk lalu lintas **ICMP Echo Request (`ping`)** dan **TCP port `80`** tanpa mengubah jam sistem komputer.
+
+Karena modul `-m time` di `iptables` mengevaluasi waktu berdasarkan **UTC** (`UTC = WIB - 7 jam`), jadwal kunjungan dikonversi sebagai berikut:
+
+- **Pilot (`08:00`–`16:00` WIB, Senin–Jumat):** `01:00`–`09:00` UTC pada hari `Mon,Tue,Wed,Thu,Fri`.
+- **Staf Geofront (`17:00`–`23:00` WIB, setiap hari):** `10:00`–`16:00` UTC setiap hari.
+- **Terduga Dummy System (`Spy`):** Selalu ditolak tanpa memandang waktu.
+- **Lainnya:** Tidak dibatasi.
+
+Variabel jadwal (`PILOT_START`, `PILOT_STOP`, `PILOT_DAYS`, `STAF_START`, dan `STAF_STOP`) ditempatkan di bagian awal `/root/penpen.sh` agar mudah diubah saat pengujian dua kondisi waktu, kemudian dikembalikan ke jadwal aslinya.
+
+## 2. Konfigurasi di `Pen-Pen` (`/root/penpen.sh`)
+
+Bagian awal variabel jadwal menggunakan nilai jadwal asli soal, serta layanan listener TCP port `80` pada `/root/penpen.sh`:
+
+```bash
+#!/bin/sh
+
+# --- Variabel Jadwal Akses ---
+PILOT_START="01:00"
+PILOT_STOP="09:00"
+PILOT_DAYS="Mon,Tue,Wed,Thu,Fri"
+
+STAF_START="10:00"
+STAF_STOP="16:00"
+
+# --- Layanan TCP Port 80 ---
+pkill -f "nc.traditional" 2>/dev/null || true
+
+while true; do
+    printf "Welcome to Pen-Pen\n" | nc.traditional -l -p 80
+done >/dev/null 2>&1 &
+```
+
+## 3. Pengujian & Analisis Hasil
+
+### 3.1 Kondisi 1 — Jadwal Cocok dengan Jam Sekarang
+
+Pengujian dilakukan pada rentang `14:00`–`16:00` UTC, hari `Wed`, ketika `date -u` menunjukkan waktu `14:59 UTC`.
+
+- **Unit-01 (Pilot):** `ping` berhasil (`0% packet loss`) dan koneksi `nc` ke port `80` berhasil dengan balasan `Welcome to Pen-Pen`.
+- **Lilith (Staf Geofront):** `ping` berhasil (`0% packet loss`) dan koneksi `nc` ke port `80` berhasil dengan balasan `Welcome to Pen-Pen`.
+- **Spy (Terduga Dummy System):** `ping` gagal (`100% packet loss`) dan koneksi TCP port `80` tidak berhasil (`timed out` atau ditolak).
+
+### 3.2 Kondisi 2 — Jadwal Tidak Cocok dengan Jam Sekarang
+
+Pengujian dilakukan pada rentang `01:00`–`02:00` UTC.
+
+- **Unit-01 (Pilot):** `ping` gagal (`100% packet loss`) dan koneksi TCP port `80` ditolak (`Connection refused`).
+- **Lilith (Staf Geofront):** `ping` gagal (`100% packet loss`) dan koneksi TCP port `80` ditolak (`Connection refused`).
+- **Spy (Terduga Dummy System):** `ping` gagal (`100% packet loss`) dan koneksi TCP port `80` tidak berhasil (`timed out` atau ditolak).
+
+### 3.3 Pengembalian Konfigurasi
+
+Setelah pengujian selesai, variabel di `/root/penpen.sh` dikembalikan ke nilai jadwal asli soal:
+
+- Pilot: `01:00`–`09:00` UTC, hari `Mon,Tue,Wed,Thu,Fri`.
+- Staf Geofront: `10:00`–`16:00` UTC, setiap hari.
+
+Selanjutnya, skrip dijalankan ulang agar konfigurasi kembali menggunakan jadwal asli.
+
+## 4. Dokumentasi
+
+1. Hasil `ping` dan `nc` dari Unit-01 pada Kondisi 1.
+   ![alt text](assets/image-11.png)
+2. Hasil `ping` dan `nc` dari Lilith pada Kondisi 1.
+   ![alt text](assets/image-15.png)
+3. Hasil `ping` dan `nc` dari Spy pada Kondisi 1.
+   ![alt text](assets/image-13.png)
+4. Hasil `ping` dan `nc` dari Unit-01 pada Kondisi 2.
+   ![alt text](assets/image-12.png)
+5. Hasil `ping` dan `nc` dari Lilith pada Kondisi 2.
+   ![alt text](assets/image-16.png)
+6. Hasil `ping` dan `nc` dari Spy pada Kondisi 2.
+   ![alt text](assets/image-14.png)
+7. Bukti konfigurasi jadwal telah dikembalikan ke nilai asli.
+   ![alt text](assets/image-17.png)
+
+
+# Soal 15: Pembatasan Laju ICMP pada Tokyo3-Core
+
+## 1. Penjelasan Konsep & Urutan Rule
+
+Untuk melindungi **Tokyo3-Core** (`10.94.4.106`) dari banjir *ping*, pembatasan laju diterapkan pada rantai `INPUT` khusus paket **ICMP echo-request** (`icmptype 8`) menggunakan modul `-m limit --limit 5/second --limit-burst 5` dengan target `ACCEPT`, diikuti rule `DROP` untuk kelebihan paket `icmptype 8`.
+
+Penempatan rule `ACCEPT` (`limit 5/sec`) dan `DROP` untuk `icmptype 8` **di atas** rule `ctstate RELATED,ESTABLISHED` memastikan paket *echo-request* beruntun tidak langsung diloloskan oleh pencocokan status `conntrack`, sehingga kelebihan *ping* masuk ke rule `DROP`.
+
+Aturan ini tidak membatasi trafik di bawah batas maupun paket *ping* yang dikirim Tokyo3-Core sendiri. Paket keluar melalui rantai `OUTPUT`, sedangkan paket balasan masuk melalui rule `RELATED,ESTABLISHED`.
+
+## 2. Konfigurasi di `Tokyo3-Core` (`/root/tokyo3-core.sh`)
+
+```bash
+#!/bin/sh
+
+PING_LIMIT="5/second"
+PING_BURST="5"
+
+iptables -F INPUT
+iptables -P INPUT ACCEPT
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# 1. Izinkan loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Batasi ICMP echo-request masuk
+iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit "$PING_LIMIT" --limit-burst "$PING_BURST" -j ACCEPT
+
+# 3. Drop ICMP echo-request yang melebihi batas
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 4. Izinkan balasan koneksi yang sudah terbentuk
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+## 3. Pengujian & Analisis Hasil
+
+### 3.1 Ping Rapat dari `Lilith`
+
+Jalankan perintah berikut dari Lilith:
+
+```bash
+ping -i 0.1 -c 50 10.94.4.106
+```
+
+**Hasil:** Sebanyak 30 dari 50 paket diterima dan 20 paket dibuang (**40% packet loss**). Hal ini disertai kenaikan *counter* baris ke-3 (`DROP icmp ... icmptype 8`) menjadi `20 pkts` (`1680 bytes`).
+
+### 3.2 Ping Normal Berjeda dari `Lilith`
+
+Jalankan perintah berikut dari Lilith:
+
+```bash
+ping -i 3 -c 4 10.94.4.106
+```
+
+**Hasil:** Seluruh 4 paket berhasil diterima (**0% packet loss**) karena laju pengiriman berada di bawah batas 5 paket/detik.
+
+### 3.3 Ping Keluar dari `Tokyo3-Core`
+
+Jalankan perintah berikut di Tokyo3-Core:
+
+```bash
+ping -c 3 -i 0.2 10.94.4.105
+```
+
+**Hasil:** Seluruh 3 paket berhasil (**0% packet loss**), membuktikan bahwa *ping* yang dikirim Tokyo3-Core sendiri tidak terhambat oleh aturan pembatasan ICMP masuk.
+
+## 4. Dokumentasi
+
+Tempelkan screenshot bukti pengujian pada bagian ini:
+
+1. Hasil `ping -i 0.1 -c 50 10.94.4.106` dari Lilith.
+   ![alt text](assets/image-18.png)
+2. Hasil `ping -i 3 -c 4 10.94.4.106` dari Lilith.
+   ![alt text](assets/image-19.png)
+3. Hasil `iptables -L INPUT -v -n --line-numbers` di Tokyo3-Core.
+   ![alt text](assets/image-20.png)
+4. Hasil `ping -c 3 -i 0.2 10.94.4.105` dari Tokyo3-Core.
+   ![alt text](assets/image-21.png)
+
+## Soal 16: Deteksi dan Pemblokiran Percobaan Koneksi TCP pada Port Sensitif
+
+### 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan penerapan mekanisme deteksi dan pemblokiran (*logging and filtering*) terhadap percobaan koneksi TCP yang mencurigakan dari perangkat **Dummy-Plug** (`10.94.4.51`) menuju port sensitif pada router **Tokyo3-Core** (`10.94.4.106`). Port yang menjadi target pembatasan adalah:
+
+- **Port 22 (SSH):** Digunakan untuk layanan akses jarak jauh melalui protokol SSH.
+- **Port 23 (Telnet):** Digunakan untuk layanan akses jarak jauh melalui protokol Telnet.
+- **Port 3306 (MySQL):** Digunakan untuk layanan basis data MySQL.
+
+Untuk mendeteksi dan menangani percobaan koneksi tersebut, digunakan dua rule utama pada rantai firewall `INPUT` menggunakan **iptables**:
+
+1. **Rule LOG:** Mencatat setiap percobaan koneksi TCP dengan flag `SYN` dari alamat IP Dummy-Plug menuju port `22`, `23`, dan `3306`. Rule ini menggunakan parameter `--log-prefix "SCAN-NERV: "` sebagai penanda khusus pada log sistem sehingga aktivitas percobaan akses dapat diidentifikasi dan dihitung melalui *packet counter*.
+2. **Rule REJECT:** Menolak koneksi yang berasal dari Dummy-Plug menuju ketiga port tersebut menggunakan parameter `--reject-with tcp-reset`. Mekanisme ini mengirimkan paket TCP RST kepada pengirim sehingga koneksi langsung ditolak dan menghasilkan pesan `Connection refused`.
+
+Kedua rule ditempatkan secara berurutan setelah rule `RELATED,ESTABLISHED` agar paket koneksi yang sudah terbentuk tetap dapat diproses terlebih dahulu.
+
+Sementara itu, layanan TCP pada port **80 (HTTP)** dan **8080 (HTTP alternatif)** tetap diaktifkan dan tidak termasuk dalam pembatasan. Dengan demikian, perangkat lain seperti **Lilith** tetap dapat mengakses layanan tersebut tanpa terkena aturan pemblokiran khusus Dummy-Plug.
+
+### 2. Skrip Konfigurasi Firewall dan Deteksi Koneksi TCP
+
+- **Router `Tokyo3-Core` (`/root/tokyo3-core.sh`):**
+
+  ```bash
+  #!/bin/sh
+
+  DUMMY_IP="10.94.4.51"
+  PING_LIMIT="5/second"
+  PING_BURST="5"
+
+  NC_BIN=$(command -v nc.traditional || command -v nc)
+
+  pkill -f "nc.*-p 80" 2>/dev/null || true
+  pkill -f "nc.*-p 8080" 2>/dev/null || true
+
+  while true; do
+      printf "Tokyo3-Core HTTP 80\n" | "$NC_BIN" -l -p 80
+  done >/dev/null 2>&1 &
+
+  while true; do
+      printf "Tokyo3-Core HTTP 8080\n" | "$NC_BIN" -l -p 8080
+  done >/dev/null 2>&1 &
+
+  iptables -F INPUT
+  iptables -P INPUT ACCEPT
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
+
+  iptables -A INPUT -i lo -j ACCEPT
+
+  iptables -A INPUT -p icmp --icmp-type echo-request \
+      -m limit --limit "$PING_LIMIT" \
+      --limit-burst "$PING_BURST" -j ACCEPT
+
+  iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+  iptables -A INPUT -m conntrack \
+      --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # Rule 1: Mencatat percobaan koneksi TCP mencurigakan
+  iptables -A INPUT -s "$DUMMY_IP" -p tcp \
+      -m multiport --dports 22,23,3306 --syn \
+      -j LOG --log-prefix "SCAN-NERV: "
+
+  # Rule 2: Menolak koneksi TCP dari Dummy-Plug
+  iptables -A INPUT -s "$DUMMY_IP" -p tcp \
+      -m multiport --dports 22,23,3306 \
+      -j REJECT --reject-with tcp-reset
+  ```
+
+### 3. Pengujian & Analisis Hasil
+
+1. **Pengujian Pemblokiran Port Sensitif dari Dummy-Plug:**
+
+   ```bash
+   nc -v -w 3 10.94.4.106 22
+   nc -v -w 3 10.94.4.106 23
+   nc -v -w 3 10.94.4.106 3306
+   ```
+
+   *Hasil:* Seluruh percobaan koneksi menuju port `22`, `23`, dan `3306` ditolak oleh firewall Tokyo3-Core dengan respons `Connection refused`. Hal ini membuktikan bahwa rule `REJECT` berhasil membatasi akses Dummy-Plug menuju port sensitif.
+
+2. **Pengujian Layanan yang Tetap Diizinkan dari Dummy-Plug:**
+
+   ```bash
+   nc -v -w 3 10.94.4.106 80
+   nc -v -w 3 10.94.4.106 8080
+   ```
+
+   *Hasil:* Koneksi menuju port `80` dan `8080` berhasil (`succeeded!`) dan menerima balasan layanan dari Tokyo3-Core. Hal ini membuktikan bahwa pembatasan firewall hanya berlaku pada port sensitif yang telah ditentukan.
+
+3. **Verifikasi Packet Counter Rule LOG dan REJECT pada Tokyo3-Core:**
+
+   ```bash
+   iptables -L INPUT -v -n --line-numbers
+   ```
+
+   *Hasil:* Nilai *packet counter* dan *byte counter* pada rule `LOG` dengan prefix `SCAN-NERV: ` serta rule `REJECT` mengalami peningkatan sesuai jumlah percobaan koneksi dari Dummy-Plug. Hal ini menunjukkan bahwa aktivitas koneksi berhasil terdeteksi, dicatat, dan ditolak oleh firewall.
+
+4. **Pengujian Akses dari Klien Lain (Lilith):**
+
+   ```bash
+   nc -v -w 3 10.94.4.106 80
+   nc -v -w 3 10.94.4.106 8080
+   ```
+
+   *Hasil:* Perangkat Lilith tetap dapat terhubung ke layanan TCP port `80` dan `8080` pada Tokyo3-Core tanpa terkena pembatasan khusus Dummy-Plug. Hal ini membuktikan bahwa aturan firewall diterapkan secara spesifik berdasarkan alamat IP sumber dan port tujuan, sehingga tidak mengganggu konektivitas klien lainnya.
+
+### DOKUMENTASI
+
+1. hasil pengujian koneksi TCP ke port `22`, `23`, dan `3306` menggunakan perintah `nc -v -w 3 10.94.4.106 <port>` dengan hasil `Connection refused` dan hasil pengujian koneksi TCP ke port `80` dan `8080` yang berhasil (`succeeded!`) serta menerima balasan layanan dari Tokyo3-Core.
+   ![alt text](assets/image-22.png)
+
+2. hasil perintah `iptables -L INPUT -v -n --line-numbers` yang memperlihatkan urutan rule `LOG` dengan prefix `SCAN-NERV: ` dan `REJECT --reject-with tcp-reset`, beserta peningkatan *packet counter*.
+   ![alt text](assets/image-23.png)
+
+3. hasil pengujian koneksi TCP dari perangkat Lilith menuju port `80` dan `8080` pada Tokyo3-Core yang berhasil tanpa terkena pembatasan firewall.
+   ![alt text](assets/image-24.png)
+
+## Soal 17: Pengalihan Trafik TCP Menggunakan DNAT & MASQUERADE pada Router Fuyutsuki
+
+### 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan penerapan mekanisme *Network Address Translation* (NAT) pada router **Fuyutsuki** untuk mengalihkan koneksi TCP dari perangkat **Magi-Casper** (`10.94.4.66`) yang ditujukan ke **Zeruel** (`10.94.4.90`) agar diteruskan ke perangkat **Pen-Pen** (`10.94.3.194`) secara transparan tanpa disadari oleh pengirim.
+
+Mekanisme pengalihan trafik menggunakan dua aturan utama:
+
+- **DNAT (Destination Network Address Translation):** Diterapkan pada rantai `PREROUTING` tabel `nat` untuk mengubah alamat IP tujuan paket TCP dari `10.94.4.90` (Zeruel) menjadi `10.94.3.194` (Pen-Pen) sebelum proses keputusan *routing*. Aturan ini hanya berlaku untuk protokol TCP sehingga trafik ICMP seperti `ping` tidak ikut dialihkan.
+- **MASQUERADE (Source Network Address Translation):** Diterapkan pada rantai `POSTROUTING` tabel `nat` untuk mengubah alamat IP sumber paket TCP dari Magi-Casper menjadi alamat IP antarmuka keluar Fuyutsuki. Hal ini memastikan paket balasan dari Pen-Pen kembali melewati Fuyutsuki.
+
+Dengan memanfaatkan mekanisme *connection tracking* (`conntrack`), alamat pada paket balasan secara otomatis diterjemahkan kembali sehingga Magi-Casper tetap menerima respons seolah-olah berkomunikasi langsung dengan Zeruel.
+
+### 2. Skrip Konfigurasi NAT (DNAT & MASQUERADE)
+
+- **Router `Fuyutsuki` (`/root/fuyutsuki.sh`):**
+
+  ```bash
+  #!/bin/sh
+
+  CASPER_IP="10.94.4.66"
+  ZERUEL_IP="10.94.4.90"
+  PENPEN_IP="10.94.3.194"
+
+  # Konfigurasi IP interface & routing Fuyutsuki
+  ip addr flush dev eth0; ip addr add 10.94.4.110/30 dev eth0; ip link set eth0 up
+  ip addr flush dev eth1; ip addr add 10.94.4.65/29 dev eth1; ip link set eth1 up
+  ip addr flush dev eth2; ip addr add 10.94.4.137/30 dev eth2; ip link set eth2 up
+  ip addr flush dev eth3; ip addr add 10.94.4.141/30 dev eth3; ip link set eth3 up
+
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+  ip route replace default via 10.94.4.109
+  ip route replace 10.94.3.192/27 via 10.94.4.138
+  ip route replace 10.94.4.80/29 via 10.94.4.142
+
+  # Membersihkan aturan NAT sebelumnya
+  iptables -t nat -F PREROUTING
+  iptables -t nat -F POSTROUTING
+
+  iptables -P FORWARD ACCEPT
+
+  # DNAT: Mengalihkan tujuan TCP Zeruel ke Pen-Pen
+  iptables -t nat -A PREROUTING \
+      -s "$CASPER_IP" -d "$ZERUEL_IP" -p tcp \
+      -j DNAT --to-destination "$PENPEN_IP"
+
+  # MASQUERADE: Mengubah alamat sumber paket TCP
+  iptables -t nat -A POSTROUTING \
+      -s "$CASPER_IP" -d "$PENPEN_IP" -p tcp \
+      -j MASQUERADE
+  ```
+
+### 3. Pengujian & Analisis Hasil
+
+1. **Pengujian Konektivitas ICMP dari Magi-Casper ke Zeruel:**
+
+   ```bash
+   ping -c 2 10.94.4.90
+   ```
+
+   *Hasil:* Seluruh paket ICMP berhasil diterima oleh Zeruel dengan `0% packet loss`. Hal ini membuktikan bahwa aturan DNAT hanya berlaku untuk protokol TCP sehingga trafik ICMP tidak ikut dialihkan ke Pen-Pen.
+
+2. **Pengujian Pengiriman Pesan TCP dari Magi-Casper ke Zeruel:**
+
+   ```bash
+   printf "Pesan dari Casper ke Zeruel\n" | nc -w 3 10.94.4.90 9000
+   ```
+
+   *Hasil:* Meskipun koneksi ditujukan ke alamat IP Zeruel (`10.94.4.90`), pesan berhasil diteruskan melalui Fuyutsuki dan diterima oleh listener TCP port `9000` pada Pen-Pen (`10.94.3.194`). Hal ini membuktikan bahwa mekanisme DNAT berhasil mengubah alamat tujuan koneksi.
+
+3. **Verifikasi Penerimaan Pesan pada Pen-Pen:**
+
+   *Hasil:* Listener TCP port `9000` pada Pen-Pen menampilkan pesan `"Pesan dari Casper ke Zeruel"`. Hal ini menunjukkan bahwa paket TCP berhasil dialihkan ke perangkat tujuan yang sebenarnya, yaitu Pen-Pen.
+
+4. **Verifikasi Listener pada Zeruel:**
+
+   *Hasil:* Terminal listener TCP port `9000` pada Zeruel tetap kosong karena koneksi dari Magi-Casper telah dialihkan menuju Pen-Pen sebelum mencapai Zeruel.
+
+5. **Verifikasi Tabel NAT pada Fuyutsuki:**
+
+   ```bash
+   iptables -t nat -L -v -n --line-numbers
+   nft list table ip nat
+   ```
+
+   *Hasil:* Terlihat peningkatan *packet counter* pada aturan `PREROUTING` dengan target `DNAT` menuju `10.94.3.194` serta aturan `POSTROUTING` dengan target `MASQUERADE`. Hasil tersebut mengonfirmasi bahwa proses translasi alamat tujuan dan sumber berjalan sesuai skenario yang telah dikonfigurasi.
+
+### DOKUMENTASI
+
+1. Hasil pengujian ping dan pengiriman pesan TCP dari Magi-Casper ke Zeruel.
+   ![alt text](assets/image-25.png)
+2. Hasil penerimaan pesan TCP pada Pen-Pen.
+   ![alt text](assets/image-26.png)
+3. Hasil verifikasi listener TCP pada Zeruel yang tetap kosong.
+   ![alt text](assets/image-27.png)
+4. Hasil verifikasi aturan DNAT dan MASQUERADE pada Fuyutsuki.
+   ![alt text](assets/image-28.png)
+
+
+## Soal 18: Konfigurasi Firewall FORWARD untuk Melindungi Zona Monolith dan Radar pada Router Shigeru
+
+### 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan penerapan aturan firewall menggunakan **iptables** pada rantai `FORWARD` di router **Shigeru** untuk melindungi zona Monolith dan Radar dari trafik yang berasal dari jaringan luar, yaitu jaringan yang terhubung melalui interface `eth0` dan menghadap ke router Gendo.
+
+Terdapat tiga aturan utama yang diterapkan:
+
+- **ESTABLISHED,RELATED:** Mengizinkan paket balasan dari koneksi yang telah terbentuk maupun koneksi terkait agar komunikasi yang dimulai dari dalam zona Monolith/Radar tetap berjalan normal.
+- **Pengecualian ICMP Subnet Terminal:** Mengizinkan paket ICMP `echo-request` yang berasal dari subnet Terminal (`10.94.4.64/29`) dan masuk melalui interface `eth0`. Aturan ini memberikan pengecualian agar perangkat Magi-Casper tetap dapat melakukan pengujian konektivitas.
+- **DROP Trafik dari eth0:** Menjatuhkan seluruh trafik lainnya yang masuk melalui interface `eth0` sehingga jaringan luar tidak dapat memulai koneksi baru menuju zona Monolith dan Radar.
+
+Dengan urutan aturan tersebut, komunikasi balasan dari dalam zona tetap diizinkan, subnet Terminal mendapatkan pengecualian untuk melakukan ping, sedangkan trafik masuk lainnya dari jaringan luar akan diblokir.
+
+### 2. Konfigurasi Firewall FORWARD pada Router Shigeru
+
+- **Router `Shigeru`:**
+
+  ```bash
+  # Membersihkan aturan FORWARD sebelumnya
+  iptables -F FORWARD
+
+  # Mengizinkan koneksi yang sudah terbentuk dan terkait
+  iptables -A FORWARD -m conntrack \
+      --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # Mengizinkan ICMP dari subnet Terminal melalui eth0
+  iptables -A FORWARD -i eth0 \
+      -s 10.94.4.64/29 \
+      -p icmp --icmp-type echo-request -j ACCEPT
+
+  # Memblokir seluruh trafik lainnya dari jaringan luar
+  iptables -A FORWARD -i eth0 -j DROP
+  ```
+
+### 3. Pengujian & Analisis Hasil
+
+1. **Pengujian Ping dari Magi-Casper ke Zeruel:**
+
+   ```bash
+   ping -c 3 10.94.4.90
+   ```
+
+   *Hasil:* Pengujian ping berhasil dengan `0% packet loss`. Hal ini membuktikan bahwa paket ICMP dari Magi-Casper yang berasal dari subnet Terminal (`10.94.4.64/29`) berhasil melewati aturan pengecualian sebelum mencapai rule `DROP`.
+
+2. **Pengujian Ping dari Lilith ke Zeruel:**
+
+   ```bash
+   ping -c 3 10.94.4.90
+   ```
+
+   *Hasil:* Pengujian ping gagal dengan `100% packet loss` karena paket ICMP dari Lilith masuk melalui interface `eth0` dan tidak termasuk dalam subnet Terminal yang mendapatkan pengecualian. Oleh karena itu, paket dijatuhkan oleh aturan `-i eth0 -j DROP`.
+
+3. **Verifikasi Aturan Firewall FORWARD pada Shigeru:**
+
+   ```bash
+   iptables -L FORWARD -v -n --line-numbers
+   ```
+
+   *Hasil:* Terlihat tiga aturan firewall pada rantai `FORWARD`, yaitu `ESTABLISHED,RELATED`, pengecualian ICMP dari subnet Terminal, dan `DROP` untuk seluruh trafik lainnya dari `eth0`. Nilai *packet counter* menunjukkan aktivitas paket yang diproses oleh masing-masing aturan.
+
+### DOKUMENTASI
+
+1. Hasil verifikasi aturan firewall FORWARD menggunakan perintah `iptables -L FORWARD -v -n --line-numbers` pada Shigeru.
+   ![alt text](assets/image-29.png)
+2. Hasil pengujian ping dari Magi-Casper ke Zeruel (`10.94.4.90`) yang berhasil.
+   ![alt text](assets/image-30.png)
+3. Hasil pengujian ping dari Lilith ke Zeruel (`10.94.4.90`) yang gagal.
+   ![alt text](assets/image-31.png)
+
+## Soal 19: Isolasi Node Armisael Tanpa Mengganggu Konektivitas Zeruel
+
+### 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan penerapan mekanisme isolasi jaringan terhadap perangkat **Armisael** (`10.94.4.91/29`, MAC `02:42:3f:0c:ec:00`) menggunakan firewall **iptables** pada router gateway **Shigeru**.
+
+Tujuan konfigurasi ini adalah memblokir seluruh lalu lintas masuk dan keluar Armisael tanpa melakukan perubahan konfigurasi di dalam node Armisael maupun mengisolasi seluruh Switch-Monolith yang juga menghubungkan perangkat Zeruel (`10.94.4.90/29`).
+
+Terdapat beberapa mekanisme yang diterapkan:
+
+- **Pemblokiran pada rantai INPUT:** Menggunakan aturan `-s 10.94.4.91 -j DROP` untuk menjatuhkan paket yang berasal dari Armisael dan ditujukan ke router Shigeru.
+- **Pemblokiran pada rantai FORWARD:** Menggunakan aturan `-s 10.94.4.91 -j DROP` dan `-d 10.94.4.91 -j DROP` untuk memblokir trafik yang berasal dari maupun menuju Armisael ketika melewati router Shigeru.
+- **Mempertahankan aturan firewall sebelumnya:** Aturan `ESTABLISHED,RELATED`, pengecualian ICMP dari subnet Terminal, serta pemblokiran trafik masuk dari interface `eth0` tetap dipertahankan.
+- **Mempertahankan konektivitas Zeruel:** Pemblokiran dilakukan berdasarkan alamat IP Armisael, bukan berdasarkan keseluruhan segmen atau Switch-Monolith, sehingga Zeruel tidak ikut terkena aturan isolasi.
+
+Karena Armisael dan Zeruel berada dalam satu subnet `10.94.4.88/29` dan terhubung melalui Switch-Monolith, komunikasi langsung di antara keduanya tidak melewati router Shigeru. Oleh karena itu, isolasi menggunakan firewall gateway tidak dapat memutus komunikasi Layer 2 secara langsung di antara kedua perangkat.
+
+### 2. Skrip Konfigurasi Isolasi pada Router Shigeru
+
+- **Router `Shigeru` (`/root/shigeru.sh`):**
+
+  ```bash
+  #!/bin/sh
+
+  IF_GENDO="eth0"
+  SUBNET_TERMINAL="10.94.4.64/29"
+  ARMISAEL_IP="10.94.4.91"
+
+  # Konfigurasi IP interface & routing Shigeru
+  ip addr flush dev eth0; ip addr add 10.94.4.114/30 dev eth0; ip link set eth0 up
+  ip addr flush dev eth1; ip addr add 10.94.4.89/29 dev eth1; ip link set eth1 up
+  ip addr flush dev eth2; ip addr add 10.94.4.145/30 dev eth2; ip link set eth2 up
+
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+  ip route replace default via 10.94.4.113
+  ip route replace 10.94.4.56/29 via 10.94.4.146
+
+  # Isolasi Armisael pada rantai INPUT
+  iptables -D INPUT -s "$ARMISAEL_IP" -j DROP 2>/dev/null || true
+  iptables -I INPUT 1 -s "$ARMISAEL_IP" -j DROP
+
+  # Konfigurasi firewall FORWARD
+  iptables -F FORWARD
+  iptables -P FORWARD ACCEPT
+
+  # Memblokir trafik dari Armisael
+  iptables -A FORWARD -s "$ARMISAEL_IP" -j DROP
+
+  # Memblokir trafik menuju Armisael
+  iptables -A FORWARD -d "$ARMISAEL_IP" -j DROP
+
+  # Mengizinkan koneksi yang sudah terbentuk
+  iptables -A FORWARD -m conntrack \
+      --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # Pengecualian ICMP dari subnet Terminal
+  iptables -A FORWARD -i "$IF_GENDO" \
+      -s "$SUBNET_TERMINAL" \
+      -p icmp --icmp-type echo-request -j ACCEPT
+
+  # Memblokir trafik lainnya dari jaringan luar
+  iptables -A FORWARD -i "$IF_GENDO" -j DROP
+  ```
+
+### 3. Pengujian & Analisis Hasil
+
+1. **Pengujian Konektivitas dari Armisael ke Lilith:**
+
+   ```bash
+   ping -c 2 10.94.4.82
+   nc -v -w 3 10.94.4.82 53
+   nc -v -w 3 10.94.4.82 9000
+   ```
+
+   *Hasil:* Seluruh pengujian konektivitas gagal. Pengujian ping menghasilkan `100% packet loss`, sedangkan koneksi TCP ke port `53` dan `9000` gagal atau mengalami `timed out`. Hal ini menunjukkan bahwa trafik Armisael yang melewati Shigeru berhasil dibatasi oleh aturan firewall.
+
+2. **Pengujian Konektivitas Armisael ke Zeruel:**
+
+   ```bash
+   ping -c 2 10.94.4.90
+   nc -v -w 3 10.94.4.90 9000
+   ```
+
+   *Hasil:* Pengujian ping berhasil dengan `0% packet loss` dan koneksi TCP port `9000` menunjukkan `succeeded`. Hal ini terjadi karena Armisael dan Zeruel berada dalam satu subnet `/29` (`10.94.4.88/29`) sehingga komunikasi keduanya berlangsung langsung melalui Switch-Monolith tanpa melewati rantai `FORWARD` pada Shigeru.
+
+3. **Pengujian Konektivitas dari Zeruel ke Lilith:**
+
+   ```bash
+   ping -c 2 10.94.4.82
+   nc -v -w 3 10.94.4.82 53
+   nc -v -w 3 10.94.4.82 9000
+   ```
+
+   *Hasil:* Seluruh pengujian konektivitas dari Zeruel ke Lilith berhasil. Ping mendapatkan respons dan koneksi TCP menuju port `53` serta `9000` berhasil. Hal ini membuktikan bahwa aturan isolasi berdasarkan alamat IP Armisael tidak ikut memblokir konektivitas Zeruel.
+
+4. **Verifikasi Aturan Firewall pada Shigeru:**
+
+   ```bash
+   iptables -L INPUT -v -n --line-numbers
+   iptables -L FORWARD -v -n --line-numbers
+   ```
+
+   *Hasil:* Terlihat aturan `DROP` khusus alamat IP Armisael pada rantai `INPUT` dan `FORWARD`, serta aturan firewall zona Monolith/Radar yang tetap dipertahankan. Nilai *packet counter* menunjukkan paket yang diproses oleh masing-masing aturan firewall.
+
+### DOKUMENTASI
+
+1. Hasil pengujian ping dan koneksi TCP dari Armisael ke Lilith serta pengujian konektivitas Armisael ke Zeruel.
+   ![alt text](assets/image-32.png)
+2. Hasil pengujian ping dan koneksi TCP dari Zeruel ke Lilith pada port `53` dan `9000`.
+   ![alt text](assets/image-33.png)
+3. Hasil verifikasi aturan firewall INPUT dan FORWARD menggunakan perintah `iptables -L INPUT -v -n --line-numbers` dan `iptables -L FORWARD -v -n --line-numbers` pada Shigeru.
+   ![alt text](assets/image-34.png)
+
+## Soal 20: Uji Kebakaran Geofront (Backup & Pemulihan Firewall serta Routing)
+
+### 1. Penjelasan Konsep
+
+Pada tahap ini dilakukan pengujian kesiapan pemulihan sistem jaringan (*disaster recovery*) untuk memastikan konfigurasi firewall dan routing dapat dikembalikan dengan cepat, konsisten, dan idempoten setelah terjadi penghapusan aturan maupun rute.
+
+Pengujian dilakukan pada tiga node, yaitu **Shigeru** sebagai router, serta **Zeruel** dan **Lilith** sebagai host. Terdapat empat tahapan utama dalam proses pengujian:
+
+- **Backup Konfigurasi Firewall:** Menyimpan seluruh aturan firewall yang sedang aktif ke dalam berkas `/root/<nama>.rules` menggunakan perintah `iptables-save`.
+- **Simulasi Penghapusan Konfigurasi:** Menghapus aturan pada tabel `filter`, `nat`, `mangle`, dan `raw`, mengembalikan *default policy* menjadi `ACCEPT`, serta menghapus rute yang telah ditambahkan secara manual.
+- **Pemulihan Konfigurasi:** Mengembalikan aturan firewall menggunakan `iptables-restore` dan menjalankan kembali skrip konfigurasi `/root/<nama>.sh` sebanyak dua kali berturut-turut untuk menguji sifat idempoten.
+- **Verifikasi Konsistensi Sistem:** Membandingkan jumlah baris aturan firewall antara pemulihan pertama dan kedua, memeriksa tabel routing menggunakan `ip r`, serta menguji konektivitas dan layanan jaringan menggunakan `ping`, `nc`, dan `ss`.
+
+Dengan mekanisme tersebut, konfigurasi dapat dipulihkan tanpa menghasilkan aturan firewall maupun rute yang terduplikasi ketika proses pemulihan dijalankan berulang kali.
+
+### 2. Skrip Backup dan Pemulihan per Node
+
+#### a. Router `Shigeru` (`/root/shigeru.sh`)
+
+```bash
+#!/bin/sh
+
+IF_GENDO="eth0"
+SUBNET_TERMINAL="10.94.4.64/29"
+ARMISAEL_IP="10.94.4.91"
+
+# Konfigurasi IP interface & routing Shigeru
+ip addr flush dev eth0; ip addr add 10.94.4.114/30 dev eth0; ip link set eth0 up
+ip addr flush dev eth1; ip addr add 10.94.4.89/29 dev eth1; ip link set eth1 up
+ip addr flush dev eth2; ip addr add 10.94.4.145/30 dev eth2; ip link set eth2 up
+
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+ip route replace default via 10.94.4.113
+ip route replace 10.94.4.56/29 via 10.94.4.146
+
+# Isolasi Armisael pada rantai INPUT
+iptables -D INPUT -s "$ARMISAEL_IP" -j DROP 2>/dev/null || true
+iptables -I INPUT 1 -s "$ARMISAEL_IP" -j DROP
+
+# Aturan FORWARD zona Monolith & Radar
+iptables -F FORWARD
+iptables -P FORWARD ACCEPT
+iptables -A FORWARD -s "$ARMISAEL_IP" -j DROP
+iptables -A FORWARD -d "$ARMISAEL_IP" -j DROP
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -i "$IF_GENDO" -s "$SUBNET_TERMINAL" -p icmp --icmp-type echo-request -j ACCEPT
+iptables -A FORWARD -i "$IF_GENDO" -j DROP
+```
+
+#### b. Node `Zeruel` (`/root/zeruel.sh`)
+
+```bash
+#!/bin/sh
+
+ip link set eth0 up
+ip route replace default via 10.94.4.89 dev eth0
+```
+
+#### c. Node `Lilith` (`/root/lilith.sh`)
+
+```bash
+#!/bin/sh
+
+ip link set eth0 up
+ip route replace default via 10.94.4.81 dev eth0
+```
+
+### 3. Hasil Pengujian & Analisis
+
+1. **Pengujian Backup, Penghapusan, dan Pemulihan pada Shigeru:**
+
+   *Hasil:* Konfigurasi firewall berhasil dicadangkan menggunakan `iptables-save`, kemudian aturan firewall dan rute diuji dengan simulasi penghapusan. Pemulihan dilakukan menggunakan `iptables-restore` dan skrip `/root/shigeru.sh` sebanyak dua kali berturut-turut. Hasil perbandingan menunjukkan jumlah aturan `iptables -S` tetap `9` baris dan `iptables -t nat -S` tetap `4` baris pada kedua proses pemulihan. Tabel routing kembali menampilkan default route melalui `10.94.4.113` dan rute `10.94.4.56/29` melalui `10.94.4.146` tanpa duplikasi. Pengujian `ping -c 2 10.94.4.113` dan `ping -c 2 10.94.4.82` berhasil dengan `0% packet loss`.
+
+2. **Pengujian Backup, Penghapusan, dan Pemulihan pada Zeruel:**
+
+   *Hasil:* Konfigurasi firewall berhasil dicadangkan dan dipulihkan sebanyak dua kali berturut-turut. Jumlah aturan `iptables -S` tetap `3` baris dan `iptables -t nat -S` tetap `4` baris. Default route melalui `10.94.4.89` pada interface `eth0` berhasil dipulihkan tanpa duplikasi. Pengujian `ping -c 2 10.94.4.82` berhasil dengan `0% packet loss`, serta koneksi TCP menuju Lilith pada port `53` dan `9000` berhasil menggunakan `nc`.
+
+3. **Pengujian Backup, Penghapusan, dan Pemulihan pada Lilith:**
+
+   *Hasil:* Konfigurasi firewall berhasil dicadangkan dan dipulihkan sebanyak dua kali berturut-turut. Jumlah aturan `iptables -S` tetap `3` baris dan `iptables -t nat -S` tetap `4` baris. Default route melalui `10.94.4.81` pada interface `eth0` berhasil dipulihkan tanpa duplikasi. Pengujian `ping -c 2 10.94.4.81` berhasil dengan `0% packet loss`, sedangkan listener TCP port `53` dan `9000` kembali aktif dengan status `LISTEN`.
+
+4. **Verifikasi Konsistensi Firewall dan Routing:**
+
+   *Hasil:* Ketiga node berhasil melewati proses pemulihan tanpa menghasilkan aturan firewall maupun rute yang terduplikasi. Jumlah baris aturan firewall pada pemulihan pertama dan kedua menunjukkan hasil identik. Konektivitas jaringan serta layanan pada masing-masing node kembali berjalan sesuai konfigurasi sebelumnya. Dengan demikian, mekanisme backup dan pemulihan berhasil memenuhi pengujian idempotensi.
+
+### DOKUMENTASI
+
+1. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Shigeru.
+   ![alt text](assets/image-35.png)
+   ![alt text](assets/image-36.png)
+2. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Zeruel.
+   ![alt text](assets/image-37.png)
+   ![alt text](assets/image-38.png)
+3. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Lilith.
+   ![alt text](assets/image-39.png)
+   ![alt text](assets/image-40.png)
