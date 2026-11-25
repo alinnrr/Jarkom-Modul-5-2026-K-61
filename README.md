@@ -2086,11 +2086,18 @@ ip route replace default via 10.94.4.81 dev eth0
 ### DOKUMENTASI
 
 1. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Shigeru.
-   ![alt text](assets/image-35.png)
-   ![alt text](assets/image-36.png)
+   <div align="center">
+      <img src="assets/image-35.png" width="48%">
+      <img src="assets/image-36.png" width="48%">
+   </div>
 2. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Zeruel.
-   ![alt text](assets/image-37.png)
-   ![alt text](assets/image-38.png)
+   <div align="center">
+      <img src="assets/image-37.png" width="48%">
+      <img src="assets/image-38.png" width="48%">
+   </div>
+
 3. Hasil pengujian backup, penghapusan konfigurasi, pemulihan pertama dan kedua, serta verifikasi firewall dan routing pada Lilith.
-   ![alt text](assets/image-39.png)
-   ![alt text](assets/image-40.png)
+   <div align="center">
+      <img src="assets/image-39.png" width="48%">
+      <img src="assets/image-40.png" width="48%">
+   </div>
